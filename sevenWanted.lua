@@ -19,7 +19,8 @@ local inputUser = new.char[128]()
 local telegramChannel = effil.channel()
 local telegramControl = effil.channel()
 local pollerThreadHandle = nil
-function pollingWorker(token)
+function pollingWorker(token, telegramChannel, telegramControl)
+    local effil = require 'effil'
     local requests = require 'requests'
     local offset = 0
     while true do
@@ -89,7 +90,7 @@ function main()
     while true do
         wait(0)
         if settings.token ~= '' and pollerThreadHandle == nil then
-            pollerThreadHandle = effil.thread(pollingWorker)(settings.token)
+            pollerThreadHandle = effil.thread(pollingWorker)(settings.token, telegramChannel, telegramControl)
         end
         local msg = telegramChannel:pop(0)
         if msg then
