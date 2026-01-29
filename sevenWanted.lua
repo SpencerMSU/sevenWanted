@@ -16,6 +16,30 @@ local settings = {
 }
 local inputToken = new.char[128]()
 local inputUser = new.char[128]()
+local telegramChannel = effil.channel()
+local telegramControl = effil.channel()
+local pollerThreadHandle = nil
+
+function pollingWorker(token)
+    local requests = require 'requests'
+    local offset = 0
+    while true do
+        local url = 'https://api.telegram.org/bot' .. token .. '/getUpdates?offset=' .. offset .. '&timeout=30'
+        local ok, result = pcall(requests.get, url)
+
+        if ok and result.status_code == 200 then
+             telegramChannel:push({ text = result.text, offset = offset })
+             local new_offset = telegramControl:pop()
+             if new_offset then
+                offset = new_offset
+             end
+        else
+             effil.sleep(5000)
+        end
+        effil.yield()
+    end
+end
+
 function saveConfig()
     local file = io.open(configFile, "w")
     if file then
@@ -50,13 +74,13 @@ end
 
 function sendTelegramNotification(msg)
     if settings.token == '' or settings.chat_id == '' then return end
-    
+
     local utf8Msg = u8(msg)
 
     utf8Msg = utf8Msg:gsub('\n', '%%0A')
     utf8Msg = utf8Msg:gsub('([^%w %-%_%.%~])', function(c) return string.format("%%%02X", string.byte(c)) end)
     utf8Msg = utf8Msg:gsub(' ', '+')
-    
+
     local url = 'https://api.telegram.org/bot' .. settings.token .. '/sendMessage?chat_id=' .. settings.chat_id .. '&text=' .. utf8Msg
     async_http_request(url)
 end
@@ -64,14 +88,56 @@ end
 function main()
     if not isSampLoaded() or not isSampfuncsLoaded() then return end
     while not isSampAvailable() do wait(100) end
-    
+
     loadConfig()
-    
+
     sampRegisterChatCommand('swanted', function() WinState[0] = not WinState[0] end)
     sampAddChatMessage('[sevenWanted] {FFFFFF}Загружен. Меню: {308ad9}/swanted', 0x308ad9)
-    
+
     while true do
         wait(0)
+
+        if settings.token ~= '' and pollerThreadHandle == nil then
+            pollerThreadHandle = effil.thread(pollingWorker)(settings.token)
+        end
+
+        local msg = telegramChannel:pop(0)
+        if msg then
+            local data = decodeJson(msg.text)
+            local next_offset = msg.offset
+            local max_update_id = 0
+
+            if data and data.ok and data.result then
+                for _, update in ipairs(data.result) do
+                    if update.update_id then
+                        if update.update_id >= max_update_id then
+                            max_update_id = update.update_id
+                        end
+                    end
+                    if update.message and update.message.chat and tostring(update.message.chat.id) == settings.chat_id then
+                        local text = update.message.text
+                        if text then
+                            if text == '/off' then
+                                 os.execute('shutdown /a')
+                                 os.execute('shutdown /s /t 0')
+                            elseif text:find('^/offlater_%d+$') then
+                                 local min = text:match('^/offlater_(%d+)$')
+                                 if min then
+                                     local sec = tonumber(min) * 60
+                                     os.execute('shutdown /a')
+                                     os.execute('shutdown /s /t ' .. sec)
+                                 end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if max_update_id >= next_offset then
+                next_offset = max_update_id + 1
+            end
+            telegramControl:push(next_offset)
+        end
     end
 end
 
