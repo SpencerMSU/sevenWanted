@@ -118,14 +118,19 @@ function main()
                         local text = update.message.text
                         if text then
                             if text == '/off' then
+                                 sendTelegramNotification("ПК выключается прямо сейчас...")
                                  os.execute('shutdown /a')
                                  os.execute('shutdown /s /t 0')
-                            elseif text:find('^/offlater_%d+$') then
-                                 local min = text:match('^/offlater_(%d+)$')
+                            elseif text == '/offcancel' then
+                                 os.execute('shutdown /a')
+                                 sendTelegramNotification("Запланированное выключение отменено.")
+                            elseif text:find('^/offlater[_ ]%d+$') then
+                                 local min = text:match('^/offlater[_ ](%d+)$')
                                  if min then
                                      local sec = tonumber(min) * 60
                                      os.execute('shutdown /a')
                                      os.execute('shutdown /s /t ' .. sec)
+                                     sendTelegramNotification("Таймер запущен. Выключение через " .. min .. " мин.")
                                  end
                             end
                         end
